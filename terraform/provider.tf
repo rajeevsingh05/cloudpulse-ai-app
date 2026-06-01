@@ -11,6 +11,9 @@ terraform {
 
 provider "azurerm" {
   features {}
+
   subscription_id = var.subscription_id
   use_msi         = true
+  
+  resource_provider_registrations = "none"
 }
