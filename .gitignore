@@ -1,0 +1,20 @@
+# ai-service python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Java
+target/
+*.class
+
+# Node
+node_modules/
+dist/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
