@@ -5,20 +5,14 @@ resource "azurerm_kubernetes_cluster" "aks" {
   dns_prefix          = "${var.project_name}-aks"
 
   default_node_pool {
-    name                 = "system"
-    vm_size              = "Standard_B1s"
-    vnet_subnet_id       = azurerm_subnet.aks_subnet.id
-    auto_scaling_enabled = true
-    min_count            = 1
-    max_count            = 1
+    name           = "system"
+    vm_size        = "Standard_D2as_v5"
+    node_count     = 1
+    vnet_subnet_id = azurerm_subnet.aks_subnet.id
   }
 
   identity {
     type = "SystemAssigned"
-  }
-
-  oms_agent {
-    log_analytics_workspace_id = azurerm_log_analytics_workspace.law.id
   }
 
   network_profile {
