@@ -60,7 +60,7 @@ jobs:
       - name: Build backend
         run: |
           cd backend
-          mvn clean package -DskipTests
+          mvn -B -ntp clean package -DskipTests
 
       - name: Build frontend
         run: |
@@ -72,14 +72,16 @@ jobs:
         run: |
           python3 -m compileall ai-service
 
-      - name: Upload backend JAR artifact
+      - name: Upload backend artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: backend-jar
-          path: backend/target/*.jar
+          name: backend-build
+          path: |
+            backend/target/*.jar
+            backend/target/classes/
           if-no-files-found: error
 
-      - name: Upload frontend dist artifact
+      - name: Upload frontend artifact
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
@@ -98,7 +100,7 @@ jobs:
       - name: Test backend
         run: |
           cd backend
-          mvn test
+          mvn -B -ntp test
 
       - name: Test frontend
         run: |
@@ -135,11 +137,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download backend classes artifact
+      - name: Download backend build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: backend-classes
-          path: backend/target/classes/
+          name: backend-build
+          path: backend/target/
 
       - name: SonarCloud scan
         uses: SonarSource/sonarqube-scan-action@v6
@@ -171,13 +173,13 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Download backend JAR artifact
+      - name: Download backend build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: backend-jar
+          name: backend-build
           path: backend/target/
 
-      - name: Download frontend dist artifact
+      - name: Download frontend artifact
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
@@ -195,26 +197,26 @@ jobs:
       - name: Build Docker images for push
         if: github.event_name == 'push'
         run: |
-          docker build -t $ACR_LOGIN_SERVER/cloudpulse-backend:$IMAGE_TAG -t $ACR_LOGIN_SERVER/cloudpulse-backend:$ENV_NAME ./backend
-          docker build -t $ACR_LOGIN_SERVER/cloudpulse-frontend:$IMAGE_TAG -t $ACR_LOGIN_SERVER/cloudpulse-frontend:$ENV_NAME ./frontend
-          docker build -t $ACR_LOGIN_SERVER/cloudpulse-ai-service:$IMAGE_TAG -t $ACR_LOGIN_SERVER/cloudpulse-ai-service:$ENV_NAME ./ai-service
+          docker build -t "$ACR_LOGIN_SERVER/cloudpulse-backend:$IMAGE_TAG" -t "$ACR_LOGIN_SERVER/cloudpulse-backend:$ENV_NAME" ./backend
+          docker build -t "$ACR_LOGIN_SERVER/cloudpulse-frontend:$IMAGE_TAG" -t "$ACR_LOGIN_SERVER/cloudpulse-frontend:$ENV_NAME" ./frontend
+          docker build -t "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$IMAGE_TAG" -t "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$ENV_NAME" ./ai-service
 
       - name: Build Docker images for PR validation
         if: github.event_name == 'pull_request'
         run: |
-          docker build -t cloudpulse-backend:$IMAGE_TAG ./backend
-          docker build -t cloudpulse-frontend:$IMAGE_TAG ./frontend
-          docker build -t cloudpulse-ai-service:$IMAGE_TAG ./ai-service
+          docker build -t "cloudpulse-backend:$IMAGE_TAG" ./backend
+          docker build -t "cloudpulse-frontend:$IMAGE_TAG" ./frontend
+          docker build -t "cloudpulse-ai-service:$IMAGE_TAG" ./ai-service
 
       - name: Push Docker images to ACR
         if: github.event_name == 'push'
         run: |
-          docker push $ACR_LOGIN_SERVER/cloudpulse-backend:$IMAGE_TAG
-          docker push $ACR_LOGIN_SERVER/cloudpulse-backend:$ENV_NAME
-          docker push $ACR_LOGIN_SERVER/cloudpulse-frontend:$IMAGE_TAG
-          docker push $ACR_LOGIN_SERVER/cloudpulse-frontend:$ENV_NAME
-          docker push $ACR_LOGIN_SERVER/cloudpulse-ai-service:$IMAGE_TAG
-          docker push $ACR_LOGIN_SERVER/cloudpulse-ai-service:$ENV_NAME
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-backend:$IMAGE_TAG"
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-backend:$ENV_NAME"
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-frontend:$IMAGE_TAG"
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-frontend:$ENV_NAME"
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$IMAGE_TAG"
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$ENV_NAME"
 
   verify:
     name: Verify ACR Images
