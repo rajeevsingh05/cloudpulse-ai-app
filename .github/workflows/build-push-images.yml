@@ -1,0 +1,267 @@
+name: Build Test Sonar and Push Images
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "ai-service/**"
+      - ".github/workflows/build-push-images.yml"
+
+  pull_request:
+    branches:
+      - develop
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "ai-service/**"
+      - ".github/workflows/build-push-images.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare Environment
+    runs-on: self-hosted
+
+    outputs:
+      env_name: ${{ steps.set_vars.outputs.env_name }}
+      image_tag: ${{ steps.set_vars.outputs.image_tag }}
+
+    steps:
+      - name: Set environment and image tag
+        id: set_vars
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            echo "env_name=pr" >> "$GITHUB_OUTPUT"
+            echo "image_tag=pr-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          elif [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "env_name=prod" >> "$GITHUB_OUTPUT"
+            echo "image_tag=prod-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          else
+            echo "env_name=dev" >> "$GITHUB_OUTPUT"
+            echo "image_tag=dev-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build Applications
+    runs-on: self-hosted
+    needs: prepare
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Build backend
+        run: |
+          cd backend
+          mvn -B -ntp clean package -DskipTests
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Compile AI service
+        run: |
+          python3 -m compileall ai-service
+
+      - name: Upload backend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-build
+          path: |
+            backend/target/*.jar
+            backend/target/classes/
+          if-no-files-found: error
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          if-no-files-found: error
+
+  test:
+    name: Run Unit Tests
+    runs-on: self-hosted
+    needs: build
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Test backend
+        run: |
+          cd backend
+          mvn -B -ntp test
+
+      - name: Test frontend
+        run: |
+          cd frontend
+          npm ci
+          npm test
+
+      - name: Test AI service
+        run: |
+          cd ai-service
+          python3 -m venv venv
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pytest
+          deactivate
+
+      - name: Upload backend test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: backend/target/surefire-reports/
+          if-no-files-found: ignore
+
+  sonarqube:
+    name: SonarCloud Code Quality Analysis
+    runs-on: self-hosted
+    needs: test
+    if: github.ref_name == 'main'
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download backend build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-build
+          path: backend/target/
+
+      - name: SonarCloud scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=rajeevsingh05_cloudpulse-ai-app
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.sources=backend/src,frontend/src,ai-service
+            -Dsonar.java.binaries=backend/target/classes
+            -Dsonar.exclusions=**/node_modules/**,**/target/**,**/dist/**,**/venv/**,**/__pycache__/**
+            -Dsonar.qualitygate.wait=true
+
+  docker:
+    name: Build and Push Docker Images
+    runs-on: self-hosted
+    needs:
+      - prepare
+      - test
+
+    env:
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      ENV_NAME: ${{ needs.prepare.outputs.env_name }}
+      IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Download backend build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-build
+          path: backend/target/
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+      - name: Azure login and ACR login
+        if: github.event_name == 'push'
+        run: |
+          az login --identity
+          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)
+          echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> "$GITHUB_ENV"
+          az acr login --name "$ACR_NAME"
+
+      - name: Build Docker images for push
+        if: github.event_name == 'push'
+        run: |
+          docker build -t "$ACR_LOGIN_SERVER/cloudpulse-backend:$IMAGE_TAG" -t "$ACR_LOGIN_SERVER/cloudpulse-backend:$ENV_NAME" ./backend
+          docker build -t "$ACR_LOGIN_SERVER/cloudpulse-frontend:$IMAGE_TAG" -t "$ACR_LOGIN_SERVER/cloudpulse-frontend:$ENV_NAME" ./frontend
+          docker build -t "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$IMAGE_TAG" -t "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$ENV_NAME" ./ai-service
+
+      - name: Build Docker images for PR validation
+        if: github.event_name == 'pull_request'
+        run: |
+          docker build -t "cloudpulse-backend:$IMAGE_TAG" ./backend
+          docker build -t "cloudpulse-frontend:$IMAGE_TAG" ./frontend
+          docker build -t "cloudpulse-ai-service:$IMAGE_TAG" ./ai-service
+
+      - name: Push Docker images to ACR
+        if: github.event_name == 'push'
+        run: |
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-backend:$IMAGE_TAG"
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-backend:$ENV_NAME"
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-frontend:$IMAGE_TAG"
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-frontend:$ENV_NAME"
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$IMAGE_TAG"
+          docker push "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$ENV_NAME"
+
+  verify:
+    name: Verify ACR Images
+    runs-on: self-hosted
+    needs: docker
+
+    if: github.event_name == 'push'
+
+    env:
+      ACR_NAME: ${{ vars.ACR_NAME }}
+
+    steps:
+      - name: Azure login
+        run: |
+          az login --identity
+          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
+      - name: Verify repositories
+        run: |
+          az acr repository list --name "$ACR_NAME" -o table
+
+      - name: Verify backend tags
+        run: |
+          az acr repository show-tags --name "$ACR_NAME" --repository cloudpulse-backend -o table
+
+      - name: Verify frontend tags
+        run: |
+          az acr repository show-tags --name "$ACR_NAME" --repository cloudpulse-frontend -o table
+
+      - name: Verify AI service tags
+        run: |
+          az acr repository show-tags --name "$ACR_NAME" --repository cloudpulse-ai-service -o table
+
+  cleanup:
+    name: Cleanup Runner
+    runs-on: self-hosted
+    needs:
+      - docker
+      - verify
+
+    if: always()
+
+    steps:
+      - name: Cleanup Docker cache
+        run: |
+          docker image prune -af
+          docker builder prune -af

@@ -1,6 +1,16 @@
+import React from "react";
 import { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
+import { Toastex } from "toastex";
+import "toastex/toastex.css";
+
+Toastex.config({
+  variant: "swift",
+  position: "top-center",
+  duration: 5,
+  sound: true,
+});
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:9090";
 
@@ -9,19 +19,32 @@ function App() {
   const [analysis, setAnalysis] = useState(null);
 
   useEffect(() => {
-    axios.get(`${API_URL}/api/health`)
-      .then(res => setHealth(res.data))
-      .catch(() => setHealth({ status: "Backend not reachable" }));
+    axios
+      .get(`${API_URL}/api/health`)
+      .then((res) => {
+        setHealth(res.data);
+        Toastex.success("Backend is healthy and reachable!");
+      })
+      .catch(() => {
+        setHealth({ status: "Backend not reachable" });
+        Toastex.error("Backend is not running or unreachable. Please check the service.");
+      });
   }, []);
 
   const analyzeIncident = async () => {
     const payload = {
       environment: "dev",
-      issue: "Backend pod is in CrashLoopBackOff with high restart count"
+      issue: "Backend pod is in CrashLoopBackOff with high restart count",
     };
 
-    const res = await axios.post(`${API_URL}/api/analyze`, payload);
-    setAnalysis(res.data);
+    try {
+      Toastex.info("Sending incident to AI for analysis...");
+      const res = await axios.post(`${API_URL}/api/analyze`, payload);
+      setAnalysis(res.data);
+      Toastex.success("AI analysis completed successfully!");
+    } catch (err) {
+      Toastex.warning("AI service did not respond. The AI service may be down or overloaded.");
+    }
   };
 
   return (
