@@ -8,7 +8,7 @@ module "aks" {
 
   node_pool_name = "system"
   vm_size        = "Standard_D2as_v5"
-  node_count     = 1
+  node_count     = 2
   vnet_subnet_id = module.networking.subnet_id
 
   tags = {
