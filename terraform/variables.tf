@@ -4,7 +4,7 @@ variable "subscription_id" {
 }
 
 variable "resource_group_name" {
-  description = "Existing Azure Resource Group name created by mentor"
+  description = "Azure Resource Group name used for CloudPulse infrastructure"
   type        = string
 }
 
