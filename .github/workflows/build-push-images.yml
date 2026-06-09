@@ -251,12 +251,80 @@ jobs:
         run: |
           az acr repository show-tags --name "$ACR_NAME" --repository cloudpulse-ai-service -o table
 
+  update-gitops:
+    name: Update GitOps Image Tags
+    runs-on: self-hosted
+    needs:
+      - prepare
+      - verify
+
+    if: github.event_name == 'push'
+
+    env:
+      IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+      ENV_NAME: ${{ needs.prepare.outputs.env_name }}
+      GITOPS_REPO: https://x-access-token:${{ secrets.GITOPS_TOKEN }}@github.com/rajeevsingh05/cloudpulse-ai-gitops.git
+
+    steps:
+      - name: Checkout GitOps repository
+        run: |
+          rm -rf cloudpulse-ai-gitops
+          git clone "$GITOPS_REPO" cloudpulse-ai-gitops
+          cd cloudpulse-ai-gitops
+
+          if [ "$ENV_NAME" = "dev" ]; then
+            git checkout develop
+          elif [ "$ENV_NAME" = "prod" ]; then
+            git checkout main
+          else
+            echo "Skipping GitOps update for ENV_NAME=$ENV_NAME"
+            exit 0
+          fi
+
+      - name: Update Helm image tags
+        run: |
+          cd cloudpulse-ai-gitops
+
+          if [ "$ENV_NAME" = "dev" ]; then
+            VALUES_FILE="helm/cloudpulse/values-dev.yaml"
+          elif [ "$ENV_NAME" = "prod" ]; then
+            VALUES_FILE="helm/cloudpulse/values-prod.yaml"
+          else
+            echo "Skipping GitOps update for ENV_NAME=$ENV_NAME"
+            exit 0
+          fi
+
+          sed -i "/frontend:/,/backend:/ s/tag: .*/tag: $IMAGE_TAG/" "$VALUES_FILE"
+          sed -i "/backend:/,/aiService:/ s/tag: .*/tag: $IMAGE_TAG/" "$VALUES_FILE"
+          sed -i "/aiService:/,/config:/ s/tag: .*/tag: $IMAGE_TAG/" "$VALUES_FILE"
+
+          echo "Updated $VALUES_FILE:"
+          grep -A4 "frontend:" "$VALUES_FILE"
+          grep -A4 "backend:" "$VALUES_FILE"
+          grep -A4 "aiService:" "$VALUES_FILE"
+
+      - name: Commit and push GitOps changes
+        run: |
+          cd cloudpulse-ai-gitops
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          if git diff --quiet; then
+            echo "No GitOps changes to commit"
+            exit 0
+          fi
+
+          git add helm/cloudpulse/values-dev.yaml helm/cloudpulse/values-prod.yaml
+          git commit -m "Update $ENV_NAME image tags to $IMAGE_TAG"
+          git push
+
   cleanup:
     name: Cleanup Runner
     runs-on: self-hosted
     needs:
       - docker
       - verify
+      - update-gitops
 
     if: always()
 
