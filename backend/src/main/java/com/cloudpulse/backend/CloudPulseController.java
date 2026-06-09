@@ -13,7 +13,7 @@ public class CloudPulseController {
 
     private final RestTemplate restTemplate = new RestTemplate();
 
-    @Value("${AI_SERVICE_URL:http://cloudpulse-ai-service:8000}")git s
+    @Value("${AI_SERVICE_URL:http://cloudpulse-ai-service:8000}")
     private String aiServiceUrl;
 
     @GetMapping("/health")
