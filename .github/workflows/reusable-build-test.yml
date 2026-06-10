@@ -59,10 +59,11 @@ jobs:
       - name: Test frontend with coverage
         run: |
           cd frontend
-          npm test -- --coverage 
+          npm test -- --coverage --coverage.reporter=lcov
 
       - name: Verify frontend coverage report
         run: |
+          ls -R frontend/coverage || true
           test -f frontend/coverage/lcov.info
 
       - name: Test AI service with coverage
