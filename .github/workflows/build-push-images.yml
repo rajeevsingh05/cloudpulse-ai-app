@@ -10,6 +10,7 @@ on:
       - "frontend/**"
       - "ai-service/**"
       - ".github/workflows/build-push-images.yml"
+      - ".github/actions/**"
 
   pull_request:
     branches:
@@ -20,6 +21,7 @@ on:
       - "frontend/**"
       - "ai-service/**"
       - ".github/workflows/build-push-images.yml"
+      - ".github/actions/**"
 
 permissions:
   contents: read
@@ -56,6 +58,32 @@ jobs:
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('backend/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Cache NPM packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('ai-service/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Build backend
         run: |
@@ -96,6 +124,32 @@ jobs:
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('backend/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Cache NPM packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('ai-service/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Test backend
         run: |
@@ -188,12 +242,10 @@ jobs:
 
       - name: Azure login and ACR login
         if: github.event_name == 'push'
-        run: |
-          az login --identity
-          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)
-          echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> "$GITHUB_ENV"
-          az acr login --name "$ACR_NAME"
+        uses: ./.github/actions/azure-login
+        with:
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          acr-name: ${{ vars.ACR_NAME }}
 
       - name: Build Docker images for push
         if: github.event_name == 'push'
@@ -234,12 +286,10 @@ jobs:
 
     steps:
       - name: Azure login and ACR login
-        run: |
-          az login --identity
-          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)
-          echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> "$GITHUB_ENV"
-          az acr login --name "$ACR_NAME"
+        uses: ./.github/actions/azure-login
+        with:
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          acr-name: ${{ vars.ACR_NAME }}
 
       - name: Verify Trivy installation
         run: |
@@ -259,17 +309,20 @@ jobs:
         run: |
           trivy image --severity CRITICAL,HIGH --exit-code 0 \
             "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$IMAGE_TAG"
-
             
   verify:
     name: Verify ACR Images
     runs-on: self-hosted
-    needs: trivy
+
+    needs:
+      - prepare
+      - trivy
 
     if: github.event_name == 'push'
 
     env:
       ACR_NAME: ${{ vars.ACR_NAME }}
+      IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
 
     steps:
       - name: Azure login
@@ -277,21 +330,32 @@ jobs:
           az login --identity
           az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
 
-      - name: Verify repositories
+      - name: Verify backend image exists
         run: |
-          az acr repository list --name "$ACR_NAME" -o table
+          az acr repository show-tags \
+            --name "$ACR_NAME" \
+            --repository cloudpulse-backend \
+            --query "[?@=='$IMAGE_TAG']" \
+            -o tsv | grep "$IMAGE_TAG"
 
-      - name: Verify backend tags
+      - name: Verify frontend image exists
         run: |
-          az acr repository show-tags --name "$ACR_NAME" --repository cloudpulse-backend -o table
+          az acr repository show-tags \
+            --name "$ACR_NAME" \
+            --repository cloudpulse-frontend \
+            --query "[?@=='$IMAGE_TAG']" \
+            -o tsv | grep "$IMAGE_TAG"
 
-      - name: Verify frontend tags
+      - name: Verify AI service image exists
         run: |
-          az acr repository show-tags --name "$ACR_NAME" --repository cloudpulse-frontend -o table
+          az acr repository show-tags \
+            --name "$ACR_NAME" \
+            --repository cloudpulse-ai-service \
+            --query "[?@=='$IMAGE_TAG']" \
+            -o tsv | grep "$IMAGE_TAG"
 
-      - name: Verify AI service tags
-        run: |
-          az acr repository show-tags --name "$ACR_NAME" --repository cloudpulse-ai-service -o table
+      - name: Verification complete
+        run: echo "All images verified successfully"
 
   update-gitops:
     name: Update GitOps Image Tags
