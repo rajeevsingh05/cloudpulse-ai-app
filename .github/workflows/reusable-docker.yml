@@ -22,7 +22,6 @@ jobs:
 
     strategy:
       fail-fast: false
-
       matrix:
         include:
           - service: cloudpulse-backend
@@ -42,20 +41,6 @@ jobs:
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
-
-      - name: Download backend build artifacts
-        if: matrix.service == 'cloudpulse-backend'
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-build
-          path: backend/target/
-
-      - name: Download frontend build artifact
-        if: matrix.service == 'cloudpulse-frontend'
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist/
 
       - name: Azure login and ACR login
         if: inputs.push_image == true
