@@ -1,0 +1,43 @@
+name: Reusable Trivy Scan
+
+on:
+  workflow_call:
+    inputs:
+      image_tag:
+        required: true
+        type: string
+
+jobs:
+  trivy:
+    name: Trivy Scan
+    runs-on: self-hosted
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - cloudpulse-backend
+          - cloudpulse-frontend
+          - cloudpulse-ai-service
+
+    env:
+      IMAGE_TAG: ${{ inputs.image_tag }}
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Azure login and ACR login
+        uses: ./.github/actions/azure-login
+        with:
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          acr-name: ${{ vars.ACR_NAME }}
+
+      - name: Verify Trivy installation
+        run: |
+          trivy --version
+
+      - name: Scan Docker image
+        run: |
+          trivy image --severity CRITICAL,HIGH --exit-code 0 \
+            "$ACR_LOGIN_SERVER/${{ matrix.service }}:${IMAGE_TAG}"

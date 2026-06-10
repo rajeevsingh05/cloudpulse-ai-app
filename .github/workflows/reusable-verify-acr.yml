@@ -1,0 +1,39 @@
+name: Reusable Verify ACR Images
+
+on:
+  workflow_call:
+    inputs:
+      image_tag:
+        required: true
+        type: string
+
+jobs:
+  verify:
+    name: Verify ACR Image
+    runs-on: self-hosted
+
+    strategy:
+      fail-fast: false
+      matrix:
+        repository:
+          - cloudpulse-backend
+          - cloudpulse-frontend
+          - cloudpulse-ai-service
+
+    env:
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+
+    steps:
+      - name: Azure login
+        run: |
+          az login --identity
+          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
+      - name: Verify image tag exists
+        run: |
+          az acr repository show-tags \
+            --name "$ACR_NAME" \
+            --repository "${{ matrix.repository }}" \
+            --query "[?@=='$IMAGE_TAG']" \
+            -o tsv | grep "$IMAGE_TAG"

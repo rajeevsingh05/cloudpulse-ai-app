@@ -1,0 +1,31 @@
+name: Azure Login
+
+description: Login to Azure and ACR
+
+inputs:
+  subscription-id:
+    required: true
+
+  acr-name:
+    required: true
+
+runs:
+  using: composite
+
+  steps:
+    - shell: bash
+      run: |
+        az login --identity
+
+        az account set \
+          --subscription "${{ inputs.subscription-id }}"
+
+        ACR_LOGIN_SERVER=$(az acr show \
+          --name "${{ inputs.acr-name }}" \
+          --query loginServer \
+          -o tsv)
+
+        echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
+
+        az acr login \
+          --name "${{ inputs.acr-name }}"

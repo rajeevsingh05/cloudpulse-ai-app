@@ -1,0 +1,83 @@
+name: Reusable GitOps Update
+
+on:
+  workflow_call:
+    inputs:
+      env_name:
+        required: true
+        type: string
+
+      image_tag:
+        required: true
+        type: string
+
+jobs:
+  update-gitops:
+    name: Update GitOps Image Tags
+    runs-on: self-hosted
+
+    env:
+      ENV_NAME: ${{ inputs.env_name }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      GITOPS_REPO: https://x-access-token:${{ secrets.GITOPS_TOKEN }}@github.com/rajeevsingh05/cloudpulse-ai-gitops.git
+
+    steps:
+      - name: Checkout GitOps repository
+        run: |
+          rm -rf cloudpulse-ai-gitops
+          git clone "$GITOPS_REPO" cloudpulse-ai-gitops
+          cd cloudpulse-ai-gitops
+
+          if [ "$ENV_NAME" = "dev" ]; then
+            git checkout develop
+          elif [ "$ENV_NAME" = "prod" ]; then
+            git checkout main
+          else
+            echo "Skipping GitOps update for ENV_NAME=$ENV_NAME"
+            exit 0
+          fi
+
+      - name: Install yq if missing
+        run: |
+          if ! command -v yq >/dev/null 2>&1; then
+            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+            sudo chmod +x /usr/local/bin/yq
+          fi
+
+      - name: Update Helm image tags
+        run: |
+          cd cloudpulse-ai-gitops
+
+          if [ "$ENV_NAME" = "dev" ]; then
+            VALUES_FILE="helm/cloudpulse/values-dev.yaml"
+          elif [ "$ENV_NAME" = "prod" ]; then
+            VALUES_FILE="helm/cloudpulse/values-prod.yaml"
+          else
+            echo "Invalid environment: $ENV_NAME"
+            exit 1
+          fi
+
+          yq -i '.frontend.image.tag = strenv(IMAGE_TAG)' "$VALUES_FILE"
+          yq -i '.backend.image.tag = strenv(IMAGE_TAG)' "$VALUES_FILE"
+          yq -i '.aiService.image.tag = strenv(IMAGE_TAG)' "$VALUES_FILE"
+
+          echo "Updated $VALUES_FILE"
+          grep -A4 "frontend:" "$VALUES_FILE"
+          grep -A4 "backend:" "$VALUES_FILE"
+          grep -A4 "aiService:" "$VALUES_FILE"
+
+      - name: Commit and push GitOps changes
+        run: |
+          cd cloudpulse-ai-gitops
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          if git diff --quiet; then
+            echo "No GitOps changes to commit"
+            exit 0
+          fi
+
+          git add helm/cloudpulse/values-dev.yaml helm/cloudpulse/values-prod.yaml
+          git commit -m "Update $ENV_NAME image tags to $IMAGE_TAG"
+          git push
