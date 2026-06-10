@@ -41,10 +41,14 @@ jobs:
           cd backend
           mvn -B -ntp clean package -DskipTests
 
-      - name: Test backend
+      - name: Test backend with JaCoCo coverage
         run: |
           cd backend
           mvn -B -ntp test
+
+      - name: Verify backend coverage report
+        run: |
+          test -f backend/target/site/jacoco/jacoco.xml
 
       - name: Build frontend
         run: |
@@ -52,26 +56,36 @@ jobs:
           npm ci
           npm run build
 
-      - name: Test frontend
+      - name: Test frontend with coverage
         run: |
           cd frontend
-          npm test
+          npm test -- --coverage --coverage.reporter=lcov
 
-      - name: Test AI service
+      - name: Verify frontend coverage report
+        run: |
+          ls -R frontend/coverage || true
+          test -f frontend/coverage/lcov.info
+
+      - name: Test AI service with coverage
         run: |
           cd ai-service
           python3 -m venv venv
           source venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pytest
+          pip install pytest-cov
+          pytest --cov=. --cov-report=xml
           deactivate
+
+      - name: Verify AI service coverage report
+        run: |
+          test -f ai-service/coverage.xml
 
       - name: Compile AI service
         run: |
           python3 -m compileall ai-service
 
-      - name: Upload backend artifacts
+      - name: Upload backend build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: backend-build
@@ -80,7 +94,7 @@ jobs:
             backend/target/classes/
           if-no-files-found: error
 
-      - name: Upload frontend artifact
+      - name: Upload frontend build artifact
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
@@ -94,3 +108,13 @@ jobs:
           name: backend-test-reports
           path: backend/target/surefire-reports/
           if-no-files-found: ignore
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            backend/target/site/jacoco/jacoco.xml
+            frontend/coverage/lcov.info
+            ai-service/coverage.xml
+          if-no-files-found: error

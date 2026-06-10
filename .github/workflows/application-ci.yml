@@ -29,7 +29,7 @@ permissions:
 concurrency:
   group: application-ci-${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: true
-  
+
 jobs:
   prepare:
     name: Prepare Environment
@@ -90,6 +90,18 @@ jobs:
           name: backend-build
           path: backend/target/
 
+      - name: Download coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-reports
+
+      - name: Verify Sonar input files
+        run: |
+          test -f backend/target/classes/com/cloudpulse/backend/BackendApplication.class
+          test -f backend/target/site/jacoco/jacoco.xml
+          test -f frontend/coverage/lcov.info
+          test -f ai-service/coverage.xml
+
       - name: SonarCloud scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
@@ -99,7 +111,13 @@ jobs:
             -Dsonar.projectKey=rajeevsingh05_cloudpulse-ai-app
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
             -Dsonar.host.url=https://sonarcloud.io
-            -Dsonar.sources=backend/src,frontend/src,ai-service
+            -Dsonar.sources=backend/src/main,frontend/src,ai-service
+            -Dsonar.tests=backend/src/test,frontend/src,ai-service/tests
             -Dsonar.java.binaries=backend/target/classes
+            -Dsonar.java.libraries=$HOME/.m2/repository/**/*.jar
+            -Dsonar.coverage.jacoco.xmlReportPaths=backend/target/site/jacoco/jacoco.xml
+            -Dsonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info
+            -Dsonar.python.coverage.reportPaths=ai-service/coverage.xml
+            -Dsonar.python.version=3.11
             -Dsonar.exclusions=**/node_modules/**,**/target/**,**/dist/**,**/venv/**,**/__pycache__/**
             -Dsonar.qualitygate.wait=true
