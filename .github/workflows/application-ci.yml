@@ -112,12 +112,13 @@ jobs:
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
             -Dsonar.host.url=https://sonarcloud.io
             -Dsonar.sources=backend/src/main,frontend/src,ai-service
-            -Dsonar.tests=backend/src/test
-            -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx,**/test_*.py,**/*_test.py
+            -Dsonar.tests=backend/src/test,frontend/src/test,ai-service
+            -Dsonar.test.inclusions=**/*.test.jsx,**/*.test.tsx,**/*.spec.jsx,**/*.spec.tsx,**/test_*.py,**/*_test.py
             -Dsonar.java.binaries=backend/target/classes
             -Dsonar.coverage.jacoco.xmlReportPaths=backend/target/site/jacoco/jacoco.xml
             -Dsonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info
             -Dsonar.python.coverage.reportPaths=ai-service/coverage.xml
             -Dsonar.python.version=3.11
-            -Dsonar.exclusions=**/node_modules/**,**/target/**,**/dist/**,**/venv/**,**/__pycache__/**,**/coverage/**
+            -Dsonar.exclusions=**/node_modules/**,**/target/**,**/dist/**,**/venv/**,**/__pycache__/**,**/coverage/**,**/coverage.xml
+            -Dsonar.coverage.exclusions=frontend/src/main.jsx,frontend/src/main.tsx,**/main.jsx,**/main.tsx
             -Dsonar.qualitygate.wait=true
