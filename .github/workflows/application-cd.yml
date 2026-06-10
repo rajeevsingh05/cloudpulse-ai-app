@@ -6,9 +6,6 @@ on:
       - Application CI
     types:
       - completed
-    branches:
-      - develop
-      - main
 
 permissions:
   contents: read
