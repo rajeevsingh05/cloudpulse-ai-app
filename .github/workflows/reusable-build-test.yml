@@ -1,0 +1,96 @@
+name: Reusable Build Test
+
+on:
+  workflow_call:
+
+jobs:
+  build-test:
+    name: Build and Test Applications
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('backend/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Cache NPM packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('ai-service/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Build backend
+        run: |
+          cd backend
+          mvn -B -ntp clean package -DskipTests
+
+      - name: Test backend
+        run: |
+          cd backend
+          mvn -B -ntp test
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Test frontend
+        run: |
+          cd frontend
+          npm test
+
+      - name: Test AI service
+        run: |
+          cd ai-service
+          python3 -m venv venv
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pytest
+          deactivate
+
+      - name: Compile AI service
+        run: |
+          python3 -m compileall ai-service
+
+      - name: Upload backend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-build
+          path: |
+            backend/target/*.jar
+            backend/target/classes/
+          if-no-files-found: error
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          if-no-files-found: error
+
+      - name: Upload backend test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: backend/target/surefire-reports/
+          if-no-files-found: ignore

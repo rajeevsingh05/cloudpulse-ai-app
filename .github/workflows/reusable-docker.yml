@@ -1,0 +1,88 @@
+name: Reusable Docker
+
+on:
+  workflow_call:
+    inputs:
+      push_image:
+        required: true
+        type: boolean
+
+      env_name:
+        required: true
+        type: string
+
+      image_tag:
+        required: true
+        type: string
+
+jobs:
+  docker:
+    name: Docker Build
+    runs-on: self-hosted
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        include:
+          - service: cloudpulse-backend
+            context: ./backend
+
+          - service: cloudpulse-frontend
+            context: ./frontend
+
+          - service: cloudpulse-ai-service
+            context: ./ai-service
+
+    env:
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      ENV_NAME: ${{ inputs.env_name }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Download backend build artifacts
+        if: matrix.service == 'cloudpulse-backend'
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-build
+          path: backend/target/
+
+      - name: Download frontend build artifact
+        if: matrix.service == 'cloudpulse-frontend'
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+      - name: Azure login and ACR login
+        if: inputs.push_image == true
+        uses: ./.github/actions/azure-login
+        with:
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          acr-name: ${{ vars.ACR_NAME }}
+
+      - name: Docker build validation
+        if: inputs.push_image == false
+        run: |
+          docker build \
+            -t "${{ matrix.service }}:${IMAGE_TAG}" \
+            "${{ matrix.context }}"
+
+      - name: Docker build and tag
+        if: inputs.push_image == true
+        run: |
+          docker build \
+            --label org.opencontainers.image.revision=${GITHUB_SHA} \
+            --label org.opencontainers.image.source=${GITHUB_REPOSITORY} \
+            -t "$ACR_LOGIN_SERVER/${{ matrix.service }}:${IMAGE_TAG}" \
+            -t "$ACR_LOGIN_SERVER/${{ matrix.service }}:${ENV_NAME}" \
+            "${{ matrix.context }}"
+
+      - name: Push Docker image
+        if: inputs.push_image == true
+        run: |
+          docker push "$ACR_LOGIN_SERVER/${{ matrix.service }}:${IMAGE_TAG}"
+          docker push "$ACR_LOGIN_SERVER/${{ matrix.service }}:${ENV_NAME}"

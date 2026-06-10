@@ -9,7 +9,7 @@ on:
       - "backend/**"
       - "frontend/**"
       - "ai-service/**"
-      - ".github/workflows/application-ci.yml"
+      - ".github/workflows/**"
       - ".github/actions/**"
 
   pull_request:
@@ -20,11 +20,15 @@ on:
       - "backend/**"
       - "frontend/**"
       - "ai-service/**"
-      - ".github/workflows/application-ci.yml"
+      - ".github/workflows/**"
       - ".github/actions/**"
 
 permissions:
   contents: read
+
+concurrency:
+  group: application-ci-${{ github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   prepare:
@@ -50,137 +54,29 @@ jobs:
             echo "image_tag=dev-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           fi
 
-  build:
-    name: Build Applications
-    runs-on: self-hosted
-    needs: prepare
+  build-test:
+    name: Build and Test Applications
+    uses: ./.github/workflows/reusable-build-test.yml
 
-    steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-
-      - name: Cache Maven packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('backend/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-
-      - name: Cache NPM packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('ai-service/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Build backend
-        run: |
-          cd backend
-          mvn -B -ntp clean package -DskipTests
-
-      - name: Build frontend
-        run: |
-          cd frontend
-          npm ci
-          npm run build
-
-      - name: Compile AI service
-        run: |
-          python3 -m compileall ai-service
-
-      - name: Upload backend artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-build
-          path: |
-            backend/target/*.jar
-            backend/target/classes/
-          if-no-files-found: error
-
-      - name: Upload frontend artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist/
-          if-no-files-found: error
-
-  test:
-    name: Run Unit Tests
-    runs-on: self-hosted
-    needs: build
-
-    steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-
-      - name: Cache Maven packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('backend/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-
-      - name: Cache NPM packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('ai-service/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Test backend
-        run: |
-          cd backend
-          mvn -B -ntp test
-
-      - name: Test frontend
-        run: |
-          cd frontend
-          npm ci
-          npm test
-
-      - name: Test AI service
-        run: |
-          cd ai-service
-          python3 -m venv venv
-          source venv/bin/activate
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pytest
-          deactivate
-
-      - name: Upload backend test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-test-reports
-          path: backend/target/surefire-reports/
-          if-no-files-found: ignore
+  docker-validation:
+    name: Docker Build Validation
+    needs:
+      - prepare
+      - build-test
+    uses: ./.github/workflows/reusable-docker.yml
+    with:
+      push_image: false
+      env_name: ${{ needs.prepare.outputs.env_name }}
+      image_tag: ${{ needs.prepare.outputs.image_tag }}
+    secrets: inherit
 
   sonarqube:
     name: SonarCloud Code Quality Analysis
     runs-on: self-hosted
-    needs: test
-    if: github.ref_name == 'main'
+    needs:
+      - build-test
+
+    if: github.event_name == 'pull_request' || github.ref_name == 'main'
 
     steps:
       - name: Checkout source code

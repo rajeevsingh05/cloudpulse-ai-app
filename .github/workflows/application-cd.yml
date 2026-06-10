@@ -6,74 +6,109 @@ on:
       - Application CI
     types:
       - completed
+    branches:
+      - develop
+      - main
 
 permissions:
   contents: read
-  actions: read
+
+concurrency:
+  group: application-cd-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
 
 jobs:
-  docker:
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push'
-
-    name: Build and Push Docker Images
+  check-ci:
+    name: Check CI Result
     runs-on: self-hosted
 
-    outputs:
-      env_name: ${{ steps.vars.outputs.env_name }}
-      image_tag: ${{ steps.vars.outputs.image_tag }}
-
-    env:
-      ACR_NAME: ${{ vars.ACR_NAME }}
-
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_branch }}
-
-      - name: Calculate deployment variables
-        id: vars
+      - name: Stop if CI failed
         run: |
-          if [ "${{ github.event.workflow_run.head_branch }}" = "main" ]; then
-            echo "env_name=prod" >> $GITHUB_OUTPUT
-            echo "image_tag=prod-${{ github.event.workflow_run.run_number }}" >> $GITHUB_OUTPUT
-          else
-            echo "env_name=dev" >> $GITHUB_OUTPUT
-            echo "image_tag=dev-${{ github.event.workflow_run.run_number }}" >> $GITHUB_OUTPUT
+          if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
+            echo "CI failed or was cancelled. CD will not run."
+            exit 1
           fi
 
-      - name: Azure login and ACR login
-        uses: ./.github/actions/azure-login
-        with:
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          acr-name: ${{ vars.ACR_NAME }}
+  prepare:
+    name: Prepare CD Variables
+    runs-on: self-hosted
+    needs: check-ci
 
-      - name: Build Docker images
+    outputs:
+      env_name: ${{ steps.set_vars.outputs.env_name }}
+      image_tag: ${{ steps.set_vars.outputs.image_tag }}
+
+    steps:
+      - name: Set environment and image tag
+        id: set_vars
         run: |
-          docker build \
-            -t "$ACR_LOGIN_SERVER/cloudpulse-backend:${{ steps.vars.outputs.image_tag }}" \
-            -t "$ACR_LOGIN_SERVER/cloudpulse-backend:${{ steps.vars.outputs.env_name }}" \
-            ./backend
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
 
-          docker build \
-            -t "$ACR_LOGIN_SERVER/cloudpulse-frontend:${{ steps.vars.outputs.image_tag }}" \
-            -t "$ACR_LOGIN_SERVER/cloudpulse-frontend:${{ steps.vars.outputs.env_name }}" \
-            ./frontend
+          if [ "$BRANCH" = "main" ]; then
+            echo "env_name=prod" >> "$GITHUB_OUTPUT"
+            echo "image_tag=prod-${{ github.event.workflow_run.run_number }}" >> "$GITHUB_OUTPUT"
+          elif [ "$BRANCH" = "develop" ]; then
+            echo "env_name=dev" >> "$GITHUB_OUTPUT"
+            echo "image_tag=dev-${{ github.event.workflow_run.run_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unsupported branch: $BRANCH"
+            exit 1
+          fi
 
-          docker build \
-            -t "$ACR_LOGIN_SERVER/cloudpulse-ai-service:${{ steps.vars.outputs.image_tag }}" \
-            -t "$ACR_LOGIN_SERVER/cloudpulse-ai-service:${{ steps.vars.outputs.env_name }}" \
-            ./ai-service
+  docker-push:
+    name: Build and Push Docker Images
+    needs: prepare
+    uses: ./.github/workflows/reusable-docker.yml
+    with:
+      push_image: true
+      env_name: ${{ needs.prepare.outputs.env_name }}
+      image_tag: ${{ needs.prepare.outputs.image_tag }}
+    secrets: inherit
 
-      - name: Push Docker images
+  trivy:
+    name: Scan Docker Images
+    needs:
+      - prepare
+      - docker-push
+    uses: ./.github/workflows/reusable-trivy.yml
+    with:
+      image_tag: ${{ needs.prepare.outputs.image_tag }}
+    secrets: inherit
+
+  verify:
+    name: Verify ACR Images
+    needs:
+      - prepare
+      - trivy
+    uses: ./.github/workflows/reusable-verify-acr.yml
+    with:
+      image_tag: ${{ needs.prepare.outputs.image_tag }}
+    secrets: inherit
+
+  update-gitops:
+    name: Update GitOps Image Tags
+    needs:
+      - prepare
+      - verify
+    uses: ./.github/workflows/reusable-gitops-update.yml
+    with:
+      env_name: ${{ needs.prepare.outputs.env_name }}
+      image_tag: ${{ needs.prepare.outputs.image_tag }}
+    secrets: inherit
+
+  cleanup:
+    name: Cleanup Runner
+    runs-on: self-hosted
+    needs:
+      - docker-push
+      - trivy
+      - verify
+      - update-gitops
+    if: always()
+
+    steps:
+      - name: Cleanup Docker cache
         run: |
-          docker push "$ACR_LOGIN_SERVER/cloudpulse-backend:${{ steps.vars.outputs.image_tag }}"
-          docker push "$ACR_LOGIN_SERVER/cloudpulse-backend:${{ steps.vars.outputs.env_name }}"
-
-          docker push "$ACR_LOGIN_SERVER/cloudpulse-frontend:${{ steps.vars.outputs.image_tag }}"
-          docker push "$ACR_LOGIN_SERVER/cloudpulse-frontend:${{ steps.vars.outputs.env_name }}"
-
-          docker push "$ACR_LOGIN_SERVER/cloudpulse-ai-service:${{ steps.vars.outputs.image_tag }}"
-          docker push "$ACR_LOGIN_SERVER/cloudpulse-ai-service:${{ steps.vars.outputs.env_name }}"
+          docker image prune -af --filter "until=24h"
+          docker builder prune -af --filter "until=24h"
