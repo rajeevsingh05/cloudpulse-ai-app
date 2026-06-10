@@ -112,12 +112,12 @@ jobs:
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
             -Dsonar.host.url=https://sonarcloud.io
             -Dsonar.sources=backend/src/main,frontend/src,ai-service
-            -Dsonar.tests=backend/src/test,frontend/src,ai-service/tests
+            -Dsonar.tests=backend/src/test
+            -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx,**/test_*.py,**/*_test.py
             -Dsonar.java.binaries=backend/target/classes
-            -Dsonar.java.libraries=$HOME/.m2/repository/**/*.jar
             -Dsonar.coverage.jacoco.xmlReportPaths=backend/target/site/jacoco/jacoco.xml
             -Dsonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info
             -Dsonar.python.coverage.reportPaths=ai-service/coverage.xml
             -Dsonar.python.version=3.11
-            -Dsonar.exclusions=**/node_modules/**,**/target/**,**/dist/**,**/venv/**,**/__pycache__/**
+            -Dsonar.exclusions=**/node_modules/**,**/target/**,**/dist/**,**/venv/**,**/__pycache__/**,**/coverage/**
             -Dsonar.qualitygate.wait=true
