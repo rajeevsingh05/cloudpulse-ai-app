@@ -9,6 +9,10 @@ resource "azurerm_kubernetes_cluster" "aks" {
     vm_size        = var.vm_size
     node_count     = var.node_count
     vnet_subnet_id = var.vnet_subnet_id
+
+    upgrade_settings {
+      max_surge = "10%"
+    }
   }
 
   identity {
