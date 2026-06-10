@@ -3,17 +3,21 @@ output "resource_group_name" {
 }
 
 output "acr_login_server" {
-  value = azurerm_container_registry.acr.login_server
+  value = module.acr.login_server
 }
 
 output "aks_cluster_name" {
-  value = azurerm_kubernetes_cluster.aks.name
+  value = module.aks.name
 }
 
 output "log_analytics_workspace_name" {
-  value = azurerm_log_analytics_workspace.law.name
+  value = module.log_analytics.name
 }
 
 output "vnet_name" {
-  value = azurerm_virtual_network.vnet.name
+  value = module.networking.vnet_name
+}
+
+output "aks_subnet_id" {
+  value = module.networking.subnet_id
 }

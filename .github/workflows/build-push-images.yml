@@ -219,10 +219,52 @@ jobs:
           docker push "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$IMAGE_TAG"
           docker push "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$ENV_NAME"
 
+  trivy:
+    name: Scan Docker Images with Trivy
+    runs-on: self-hosted
+    needs:
+      - prepare
+      - docker
+
+    if: github.event_name == 'push'
+
+    env:
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+
+    steps:
+      - name: Azure login and ACR login
+        run: |
+          az login --identity
+          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)
+          echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> "$GITHUB_ENV"
+          az acr login --name "$ACR_NAME"
+
+      - name: Verify Trivy installation
+        run: |
+          trivy --version
+
+      - name: Scan backend image
+        run: |
+          trivy image --severity CRITICAL,HIGH --exit-code 0 \
+            "$ACR_LOGIN_SERVER/cloudpulse-backend:$IMAGE_TAG"
+
+      - name: Scan frontend image
+        run: |
+          trivy image --severity CRITICAL,HIGH --exit-code 0 \
+            "$ACR_LOGIN_SERVER/cloudpulse-frontend:$IMAGE_TAG"
+
+      - name: Scan AI service image
+        run: |
+          trivy image --severity CRITICAL,HIGH --exit-code 0 \
+            "$ACR_LOGIN_SERVER/cloudpulse-ai-service:$IMAGE_TAG"
+
+            
   verify:
     name: Verify ACR Images
     runs-on: self-hosted
-    needs: docker
+    needs: trivy
 
     if: github.event_name == 'push'
 
@@ -251,12 +293,81 @@ jobs:
         run: |
           az acr repository show-tags --name "$ACR_NAME" --repository cloudpulse-ai-service -o table
 
+  update-gitops:
+    name: Update GitOps Image Tags
+    runs-on: self-hosted
+    needs:
+      - prepare
+      - verify
+
+    if: github.event_name == 'push'
+
+    env:
+      IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+      ENV_NAME: ${{ needs.prepare.outputs.env_name }}
+      GITOPS_REPO: https://x-access-token:${{ secrets.GITOPS_TOKEN }}@github.com/rajeevsingh05/cloudpulse-ai-gitops.git
+
+    steps:
+      - name: Checkout GitOps repository
+        run: |
+          rm -rf cloudpulse-ai-gitops
+          git clone "$GITOPS_REPO" cloudpulse-ai-gitops
+          cd cloudpulse-ai-gitops
+
+          if [ "$ENV_NAME" = "dev" ]; then
+            git checkout develop
+          elif [ "$ENV_NAME" = "prod" ]; then
+            git checkout main
+          else
+            echo "Skipping GitOps update for ENV_NAME=$ENV_NAME"
+            exit 0
+          fi
+
+      - name: Update Helm image tags
+        run: |
+          cd cloudpulse-ai-gitops
+
+          if [ "$ENV_NAME" = "dev" ]; then
+            VALUES_FILE="helm/cloudpulse/values-dev.yaml"
+          elif [ "$ENV_NAME" = "prod" ]; then
+            VALUES_FILE="helm/cloudpulse/values-prod.yaml"
+          else
+            echo "Skipping GitOps update for ENV_NAME=$ENV_NAME"
+            exit 0
+          fi
+
+          sed -i "/frontend:/,/backend:/ s/tag: .*/tag: $IMAGE_TAG/" "$VALUES_FILE"
+          sed -i "/backend:/,/aiService:/ s/tag: .*/tag: $IMAGE_TAG/" "$VALUES_FILE"
+          sed -i "/aiService:/,/config:/ s/tag: .*/tag: $IMAGE_TAG/" "$VALUES_FILE"
+
+          echo "Updated $VALUES_FILE:"
+          grep -A4 "frontend:" "$VALUES_FILE"
+          grep -A4 "backend:" "$VALUES_FILE"
+          grep -A4 "aiService:" "$VALUES_FILE"
+
+      - name: Commit and push GitOps changes
+        run: |
+          cd cloudpulse-ai-gitops
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          if git diff --quiet; then
+            echo "No GitOps changes to commit"
+            exit 0
+          fi
+
+          git add helm/cloudpulse/values-dev.yaml helm/cloudpulse/values-prod.yaml
+          git commit -m "Update $ENV_NAME image tags to $IMAGE_TAG"
+          git push
+
   cleanup:
     name: Cleanup Runner
     runs-on: self-hosted
     needs:
       - docker
+      - trivy
       - verify
+      - update-gitops
 
     if: always()
 
