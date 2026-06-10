@@ -1,0 +1,105 @@
+name: Application CI
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "ai-service/**"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+
+  pull_request:
+    branches:
+      - develop
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "ai-service/**"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: application-ci-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+  
+jobs:
+  prepare:
+    name: Prepare Environment
+    runs-on: self-hosted
+
+    outputs:
+      env_name: ${{ steps.set_vars.outputs.env_name }}
+      image_tag: ${{ steps.set_vars.outputs.image_tag }}
+
+    steps:
+      - name: Set environment and image tag
+        id: set_vars
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            echo "env_name=pr" >> "$GITHUB_OUTPUT"
+            echo "image_tag=pr-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          elif [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "env_name=prod" >> "$GITHUB_OUTPUT"
+            echo "image_tag=prod-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          else
+            echo "env_name=dev" >> "$GITHUB_OUTPUT"
+            echo "image_tag=dev-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-test:
+    name: Build and Test Applications
+    uses: ./.github/workflows/reusable-build-test.yml
+
+  docker-validation:
+    name: Docker Build Validation
+    needs:
+      - prepare
+      - build-test
+    uses: ./.github/workflows/reusable-docker.yml
+    with:
+      push_image: false
+      env_name: ${{ needs.prepare.outputs.env_name }}
+      image_tag: ${{ needs.prepare.outputs.image_tag }}
+    secrets: inherit
+
+  sonarqube:
+    name: SonarCloud Code Quality Analysis
+    runs-on: self-hosted
+    needs:
+      - build-test
+
+    if: github.event_name == 'pull_request' || github.ref_name == 'main'
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download backend build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-build
+          path: backend/target/
+
+      - name: SonarCloud scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=rajeevsingh05_cloudpulse-ai-app
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.sources=backend/src,frontend/src,ai-service
+            -Dsonar.java.binaries=backend/target/classes
+            -Dsonar.exclusions=**/node_modules/**,**/target/**,**/dist/**,**/venv/**,**/__pycache__/**
+            -Dsonar.qualitygate.wait=true
