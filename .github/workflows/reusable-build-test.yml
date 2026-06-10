@@ -59,7 +59,7 @@ jobs:
       - name: Test frontend with coverage
         run: |
           cd frontend
-          npm test -- --coverage --watchAll=false
+          npm test -- --coverage 
 
       - name: Verify frontend coverage report
         run: |
