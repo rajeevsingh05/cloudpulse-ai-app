@@ -4,6 +4,8 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(title="CloudPulse AI Service")
 
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+
 class IncidentRequest(BaseModel):
     environment: str
     issue: str
@@ -43,4 +45,4 @@ def analyze_incident(request: IncidentRequest):
         "recommendation": recommendation
     }
 
-Instrumentator().instrument(app).expose(app)
+# Instrumentator().instrument(app).expose(app)
