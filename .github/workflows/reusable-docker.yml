@@ -15,6 +15,11 @@ on:
         required: true
         type: string
 
+      source_ref:
+        required: false
+        type: string
+        default: ""
+
 jobs:
   docker:
     name: Docker Build
@@ -41,6 +46,8 @@ jobs:
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Azure login and ACR login
         if: inputs.push_image == true

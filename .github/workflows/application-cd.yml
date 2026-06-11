@@ -61,6 +61,7 @@ jobs:
       push_image: true
       env_name: ${{ needs.prepare.outputs.env_name }}
       image_tag: ${{ needs.prepare.outputs.image_tag }}
+      source_ref: ${{ github.event.workflow_run.head_sha }}
     secrets: inherit
 
   trivy:
