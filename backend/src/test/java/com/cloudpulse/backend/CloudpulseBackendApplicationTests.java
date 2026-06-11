@@ -4,12 +4,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestTemplate;
 
+import static org.hamcrest.Matchers.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -60,14 +61,22 @@ class CloudpulseBackendApplicationTests {
     // ----------------------------------------------------------------
 
     @Test
-    void incidents_shouldReturnOpenIncidentDetails() throws Exception {
+    void incidents_shouldReturnListOfOpenIncidents() throws Exception {
         mockMvc.perform(get("/api/incidents"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.environment").value("dev"))
-                .andExpect(jsonPath("$.service").value("backend"))
-                .andExpect(jsonPath("$.incident").value("CrashLoopBackOff detected"))
-                .andExpect(jsonPath("$.restartCount").value(5))
-                .andExpect(jsonPath("$.status").value("OPEN"));
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$[0].id").value("INC-1001"))
+                .andExpect(jsonPath("$[0].environment").value("dev"))
+                .andExpect(jsonPath("$[0].type").value("CrashLoopBackOff"))
+                .andExpect(jsonPath("$[0].status").value("OPEN"));
+    }
+
+    @Test
+    void incidents_shouldFilterByEnvironment() throws Exception {
+        mockMvc.perform(get("/api/incidents").param("environment", "prod"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$[*].environment", everyItem(is("prod"))));
     }
 
     @Test
