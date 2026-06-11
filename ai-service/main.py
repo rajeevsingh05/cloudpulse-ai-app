@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(title="CloudPulse AI Service")
 
@@ -41,3 +42,5 @@ def analyze_incident(request: IncidentRequest):
         "rootCause": root_cause,
         "recommendation": recommendation
     }
+
+Instrumentator().instrument(app).expose(app)
