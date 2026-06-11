@@ -52,14 +52,14 @@ jobs:
       - name: Docker build validation
         if: inputs.push_image == false
         run: |
-          docker build \
+          docker build --no-cache --pull \
             -t "${{ matrix.service }}:${IMAGE_TAG}" \
             "${{ matrix.context }}"
 
       - name: Docker build and tag
         if: inputs.push_image == true
         run: |
-          docker build \
+          docker build --no-cache --pull \
             --label org.opencontainers.image.revision=${GITHUB_SHA} \
             --label org.opencontainers.image.source=${GITHUB_REPOSITORY} \
             -t "$ACR_LOGIN_SERVER/${{ matrix.service }}:${IMAGE_TAG}" \
