@@ -251,3 +251,12 @@ def analyze_incident(request: IncidentRequest):
         "remediationSteps": result["remediationSteps"],
         "confidence": result["confidence"],
     }
+
+@app.get("/ai/health")
+def ai_health():
+    return health()
+
+
+@app.post("/ai/analyze")
+def ai_analyze_incident(request: IncidentRequest):
+    return analyze_incident(request)
