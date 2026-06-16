@@ -18,7 +18,6 @@ cloudpulse-ai/
     ├── workflows/          GitHub Actions CI/CD pipelines
     └── actions/            Reusable composite actions
 ```
-
 ---
 
 ## Services
